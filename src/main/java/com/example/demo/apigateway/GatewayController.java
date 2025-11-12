@@ -34,6 +34,7 @@ import java.util.stream.Collectors;
 import java.nio.file.*;
 import java.io.ByteArrayOutputStream;
 import java.util.UUID;
+import java.util.Collections;
 
 @RestController
 @CrossOrigin(origins = "*")
@@ -63,44 +64,57 @@ public class GatewayController {
      */
     @GetMapping("/health")
     public ResponseEntity<Map<String, Object>> getHealth() {
-        Map<String, Object> health = new java.util.LinkedHashMap<>();
-        health.put("status", "UP");
-        health.put("gatewayNodeId", nodeId);
-        health.put("lamportClock", clock.read());
-        health.put("versionVector", versionVector.snapshot());
+        return ResponseEntity.ok(getDashboardStats());
+    }
+
+    /**
+     * Combined dashboard stats for the React UI to minimize API calls.
+     */
+    @GetMapping("/dashboard/stats")
+    public ResponseEntity<Map<String, Object>> getDashboardStatsResponse() {
+        return ResponseEntity.ok(getDashboardStats());
+    }
+
+    private Map<String, Object> getDashboardStats() {
+        Map<String, Object> stats = new java.util.LinkedHashMap<>();
+        stats.put("status", "UP");
+        stats.put("gatewayNodeId", nodeId);
+        stats.put("lamportClock", clock.read());
+        stats.put("versionVector", versionVector.snapshot());
 
         // Storage nodes
         Map<String, Object> storage = new java.util.LinkedHashMap<>();
-        storage.put("upNodes", membershipService.getUpNodes().size());
-        storage.put("downNodesCount", membershipService.getDownNodes().size());
+        List<NodeInfo> upNodes = membershipService.getUpNodes();
+        List<NodeInfo> downNodes = membershipService.getDownNodes();
         
-        List<String> downUrls = membershipService.getDownNodes().stream()
-            .map(node -> node.getUrl())
-            .collect(Collectors.toList());
-        storage.put("downNodeUrls", downUrls);
-        
+        storage.put("upNodesCount", upNodes.size());
+        storage.put("downNodesCount", downNodes.size());
         storage.put("totalNodes", membershipService.getAllNodes().size());
+        
+        storage.put("upNodeUrls", upNodes.stream().map(NodeInfo::getUrl).collect(Collectors.toList()));
+        storage.put("downNodeUrls", downNodes.stream().map(NodeInfo::getUrl).collect(Collectors.toList()));
+        
         storage.put("writeQuorum", W);
         storage.put("readQuorum", R);
-        health.put("storage", storage);
+        stats.put("storage", storage);
 
         // ZAB cluster
         try {
             Map<String, Object> zab = metadataService.getClusterStatus();
-            health.put("zabCluster", zab != null ? zab : "unavailable");
+            stats.put("zabCluster", zab != null ? zab : Collections.singletonMap("status", "unavailable"));
         } catch (Exception e) {
-            health.put("zabCluster", "unavailable: " + e.getMessage());
+            stats.put("zabCluster", Collections.singletonMap("status", "error: " + e.getMessage()));
         }
 
-        return ResponseEntity.ok(health);
+        return stats;
     }
     
     /**
      * List all uploaded files
      */
     @GetMapping("/files")
-    public ResponseEntity<Map<String, Object>> listFiles() {
-        Map<String, Object> files = metadataService.getAllManifests();
+    public ResponseEntity<Map<String, Manifest>> listFiles() {
+        Map<String, Manifest> files = metadataService.getAllManifests();
         return ResponseEntity.ok(files);
     }
     

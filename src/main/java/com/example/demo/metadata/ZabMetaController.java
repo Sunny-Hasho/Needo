@@ -22,6 +22,7 @@ import org.springframework.beans.factory.annotation.Value;
  */
 @RestController
 @RequestMapping({"/zab-meta", "/meta"})
+@CrossOrigin(origins = "*")
 @Profile("zab-metadata")
 public class ZabMetaController {
     
@@ -192,6 +193,65 @@ public class ZabMetaController {
             System.out.println("❌ Manifest not found for deletion: " + fileId);
             return ResponseEntity.notFound().build();
         }
+    }
+    
+    /**
+     * Update a chunk's location (re-replication) using ZAB consensus.
+     * This is called by the RepairController when a node fails and data is moved.
+     */
+    @PostMapping("/update-location")
+    public ResponseEntity<?> updateLocation(@RequestBody Map<String, String> request) {
+        String chunkId = request.get("chunkId");
+        String oldUrl = request.get("oldUrl");
+        String newUrl = request.get("newUrl");
+        
+        System.out.println("🔧 ZAB Metadata: Updating chunk " + chunkId + " location: " + oldUrl + " -> " + newUrl);
+        
+        // Check if current node is leader
+        if (!zabCluster.isCurrentNodeLeader()) {
+            return ResponseEntity.status(503).body("Not leader");
+        }
+        
+        // Propose operation to ZAB cluster
+        Map<String, Object> operationData = new HashMap<>();
+        operationData.put("operation", "UPDATE_CHUNK_LOCATION");
+        operationData.put("chunkId", chunkId);
+        operationData.put("oldUrl", oldUrl);
+        operationData.put("newUrl", newUrl);
+        operationData.put("timestamp", System.currentTimeMillis());
+        
+        boolean proposed = zabCluster.proposeOperation("UPDATE_CHUNK_LOCATION", operationData);
+        
+        if (!proposed) {
+            return ResponseEntity.status(503).body("Consensus failed");
+        }
+        
+        // Apply update to all manifests that contain this chunk
+        int updatedCount = 0;
+        for (Manifest manifest : store.values()) {
+            if (manifest.getReplicas() != null && manifest.getReplicas().containsKey(chunkId)) {
+                List<String> nodes = manifest.getReplicas().get(chunkId);
+                if (nodes != null) {
+                    // Create new list to avoid side effects if original was immutable
+                    List<String> newNodes = new ArrayList<>(nodes);
+                    if (newNodes.remove(oldUrl)) {
+                        newNodes.add(newUrl);
+                        manifest.setReplicas(new HashMap<>(manifest.getReplicas()));
+                        manifest.getReplicas().put(chunkId, newNodes);
+                        manifest.setVersion(versionCounter.getAndIncrement());
+                        manifest.setTimestamp(System.currentTimeMillis());
+                        updatedCount++;
+                    }
+                }
+            }
+        }
+        
+        if (updatedCount > 0) {
+            saveStore();
+            System.out.println("✅ Updated " + updatedCount + " manifests for chunk " + chunkId);
+        }
+        
+        return ResponseEntity.ok().body(Map.of("updated", updatedCount));
     }
     
     /**

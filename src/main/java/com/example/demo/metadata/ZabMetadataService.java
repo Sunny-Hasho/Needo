@@ -3,6 +3,8 @@ package com.example.demo.metadata;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.http.ResponseEntity;
+import org.springframework.core.ParameterizedTypeReference;
+import org.springframework.http.HttpMethod;
 import org.springframework.beans.factory.annotation.Value;
 
 import java.util.*;
@@ -105,13 +107,18 @@ public class ZabMetadataService {
     /**
      * Get all manifests
      */
-    public Map<String, Object> getAllManifests() {
+    public Map<String, Manifest> getAllManifests() {
         try {
             String leaderUrl = discoverLeader();
             String url = leaderUrl + "/zab-meta/manifests";
-            ResponseEntity<Map> response = restTemplate.getForEntity(url, Map.class);
+            ResponseEntity<Map<String, Manifest>> response = restTemplate.exchange(
+                url, 
+                HttpMethod.GET, 
+                null, 
+                new ParameterizedTypeReference<Map<String, Manifest>>() {}
+            );
             if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
-                return (Map<String, Object>) response.getBody();
+                return response.getBody();
             }
         } catch (Exception e) {
             System.out.println("⚠️ Failed to retrieve all ZAB manifests: " + e.getMessage());
@@ -133,6 +140,41 @@ public class ZabMetadataService {
             return true;
         } catch (Exception e) {
             System.out.println("⚠️ Failed to delete manifest via ZAB: " + e.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Update a chunk's location (re-replication) using ZAB consensus
+     */
+    public boolean updateChunkLocation(String chunkId, String oldUrl, String newUrl) {
+        try {
+            String leaderUrl = discoverLeader();
+            String url = leaderUrl + "/zab-meta/update-location";
+            System.out.println("🔧 Notifying ZAB about chunk re-replication: " + url);
+            
+            Map<String, String> payload = new HashMap<>();
+            payload.put("chunkId", chunkId);
+            payload.put("oldUrl", oldUrl);
+            payload.put("newUrl", newUrl);
+            
+            ParameterizedTypeReference<Map<String, Object>> typeRef = new ParameterizedTypeReference<Map<String, Object>>() {};
+            ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
+                url,
+                HttpMethod.POST,
+                new org.springframework.http.HttpEntity<>(payload),
+                typeRef
+            );
+            
+            if (response.getStatusCode().is2xxSuccessful()) {
+                System.out.println("✅ ZAB metadata updated for chunk " + chunkId);
+                return true;
+            } else {
+                System.out.println("❌ Failed to update ZAB metadata for chunk " + chunkId + ": " + response.getStatusCode());
+                return false;
+            }
+        } catch (Exception e) {
+            System.out.println("⚠️ Failed to update ZAB metadata for chunk " + chunkId + ": " + e.getMessage());
             return false;
         }
     }

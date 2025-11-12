@@ -1,6 +1,11 @@
 package com.example.demo.membership;
 
+import com.example.demo.membership.MembershipService;
+import com.example.demo.membership.NodeInfo;
+import com.example.demo.metadata.Manifest;
+import com.example.demo.metadata.ZabMetadataService;
 import org.springframework.context.annotation.Profile;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.net.URI;
@@ -16,7 +21,6 @@ import java.util.HashSet;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 @Component
@@ -24,12 +28,14 @@ import java.util.stream.Collectors;
 public class RepairController implements java.util.function.Consumer<NodeInfo> {
 
     private final MembershipService membershipService;
+    private final ZabMetadataService zabMetadataService;
     private final HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(2)).build();
     private final ExecutorService pool = Executors.newFixedThreadPool(4);
     private static final int TARGET_REPLICAS = 3; // N=3
 
-    public RepairController(MembershipService membershipService) {
+    public RepairController(MembershipService membershipService, ZabMetadataService zabMetadataService) {
         this.membershipService = membershipService;
+        this.zabMetadataService = zabMetadataService;
         this.membershipService.addStatusChangeListener(this);
     }
 
@@ -107,7 +113,8 @@ public class RepairController implements java.util.function.Consumer<NodeInfo> {
                 
                 // Copy chunk to each target node
                 for (NodeInfo targetNode : targetNodes) {
-                    CompletableFuture.runAsync(() -> copyChunk(sourceNode, targetNode, chunkId), pool);
+                    final String downNodeUrl = downNode.getUrl();
+                    CompletableFuture.runAsync(() -> copyChunk(sourceNode, targetNode, chunkId, downNodeUrl), pool);
                 }
             }
             
@@ -135,19 +142,74 @@ public class RepairController implements java.util.function.Consumer<NodeInfo> {
         }
     }
 
-    private boolean headChunk(NodeInfo node, String chunkId) {
+    /**
+     * Periodically reconcile physical storage with ZAB metadata manifests.
+     * This cleans up "stray" chunks from nodes that were repaired/replaced.
+     */
+    @Scheduled(fixedRate = 60000) // Every 1 minute
+    public void reconcile() {
+        System.out.println("🧹 Reconciliation: Starting Garbage Collection pass...");
+        try {
+            Map<String, Manifest> allManifests = zabMetadataService.getAllManifests();
+            List<NodeInfo> upNodes = membershipService.getUpNodes();
+            
+            if (allManifests == null || allManifests.isEmpty() || upNodes.isEmpty()) {
+                System.out.println("✨ Reconciliation: No manifests or UP nodes. Skipping.");
+                return;
+            }
+
+            // Map chunkId -> Set of authorized node URLs
+            Map<String, Set<String>> authorizedMap = new HashMap<>();
+            for (Manifest m : allManifests.values()) {
+                if (m.getReplicas() != null) {
+                    for (Map.Entry<String, List<String>> entry : m.getReplicas().entrySet()) {
+                        authorizedMap.computeIfAbsent(entry.getKey(), k -> new HashSet<>())
+                                     .addAll(entry.getValue());
+                    }
+                }
+            }
+
+            int deletedCount = 0;
+            for (NodeInfo node : upNodes) {
+                List<String> physicalChunks = listChunks(node);
+                if (physicalChunks == null) continue;
+
+                for (String chunkId : physicalChunks) {
+                    Set<String> authorizedNodes = authorizedMap.get(chunkId);
+                    
+                    // If chunk is not in ANY manifest OR this node is not an authorized replica
+                    if (authorizedNodes == null || !authorizedNodes.contains(node.getUrl())) {
+                        System.out.println("🗑️ Reconciliation: Found stray chunk " + chunkId + " on unauthorized Node " + node.getUrl());
+                        boolean deleted = deleteChunkFromNode(node, chunkId);
+                        if (deleted) deletedCount++;
+                    }
+                }
+            }
+            
+            if (deletedCount > 0) {
+                System.out.println("✅ Reconciliation: Successfully purged " + deletedCount + " stray chunks across cluster.");
+            } else {
+                System.out.println("✨ Reconciliation: Cluster is clean. No stray chunks found.");
+            }
+
+        } catch (Exception e) {
+            System.out.println("⚠️ Reconciliation Error: " + e.getMessage());
+        }
+    }
+
+    private boolean deleteChunkFromNode(NodeInfo node, String chunkId) {
         try {
             HttpRequest req = HttpRequest.newBuilder(URI.create(node.getUrl() + "/chunks/" + chunkId))
-                    .method("HEAD", HttpRequest.BodyPublishers.noBody())
-                    .timeout(Duration.ofSeconds(3)).build();
-            HttpResponse<Void> r = client.send(req, HttpResponse.BodyHandlers.discarding());
-            return r.statusCode() == 200;
+                    .DELETE().timeout(Duration.ofSeconds(3)).build();
+            HttpResponse<String> res = client.send(req, HttpResponse.BodyHandlers.ofString());
+            return res.statusCode() / 100 == 2;
         } catch (Exception e) {
+            System.out.println("Repair: failed to delete chunk " + chunkId + " from " + node.getUrl() + ": " + e.getMessage());
             return false;
         }
     }
 
-    private void copyChunk(NodeInfo source, NodeInfo target, String chunkId) {
+    private void copyChunk(NodeInfo source, NodeInfo target, String chunkId, String downNodeUrl) {
         try {
             // GET from source
             HttpRequest getReq = HttpRequest.newBuilder(URI.create(source.getUrl() + "/chunks/" + chunkId))
@@ -165,6 +227,15 @@ public class RepairController implements java.util.function.Consumer<NodeInfo> {
             HttpResponse<Void> putRes = client.send(putReq, HttpResponse.BodyHandlers.discarding());
             if (putRes.statusCode() / 100 == 2) {
                 System.out.println("Repair: copied " + chunkId + " from " + source.getUrl() + " -> " + target.getUrl());
+                
+                // CRITICAL bit: Update the ZAB Manifest so the UI and Gateway know the new location!
+                // We must replace the DOWN node URL, not the source node URL!
+                boolean updated = zabMetadataService.updateChunkLocation(chunkId, downNodeUrl, target.getUrl());
+                if (updated) {
+                    System.out.println("Repair: ZAB metadata updated for chunk " + chunkId + " (replaced " + downNodeUrl + " with " + target.getUrl() + ")");
+                } else {
+                    System.out.println("Repair: WARNING — Failed to update ZAB metadata for chunk " + chunkId);
+                }
             } else {
                 System.out.println("Repair: PUT failed for " + chunkId + " to " + target.getUrl() + " (status: " + putRes.statusCode() + ")");
             }

@@ -1,5 +1,6 @@
 package com.example.demo.apigateway;
 
+import org.springframework.web.bind.annotation.CrossOrigin;
 import com.example.demo.common.LamportClock;
 import com.example.demo.common.VersionVector;
 import com.example.demo.common.ChunkMetadata;
@@ -32,6 +33,7 @@ import java.util.concurrent.ConcurrentHashMap;
 
 @RestController
 @Profile("storage")
+@CrossOrigin(origins = "*")
 public class StorageController {
     @Value("${storage.dir:storage-node-data}")
     private String storageDir;
