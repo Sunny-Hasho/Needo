@@ -1,0 +1,56 @@
+HELP.md
+target/
+.mvn/wrapper/maven-wrapper.jar
+!**/src/main/**/target/
+!**/src/test/**/target/
+
+### STS ###
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings
+.springBeans
+.sts4-cache
+
+### IntelliJ IDEA ###
+.idea
+*.iws
+*.iml
+*.ipr
+
+### NetBeans ###
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+build/
+!**/src/main/**/build/
+!**/src/test/**/build/
+
+### VS Code ###
+.vscode/
+
+### Application Storage & Data ###
+storage-*/
+api-storage/
+storage-node-data/
+blocks/
+meta/
+metadata-store.json
+
+### Logs & Temp files ###
+*.log
+*.txt
+tmp/
+parts-/
+
+### Frontend (demo-ui) ###
+demo-ui/node_modules/
+demo-ui/dist/
+demo-ui/.env.local
+demo-ui/.env.*.local
+demo-ui/npm-debug.log*
+demo-ui/yarn-debug.log*
+demo-ui/yarn-error.log*

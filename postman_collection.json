@@ -1,0 +1,492 @@
+{
+  "info": {
+    "name": "Distributed Storage - Your Implementation",
+    "description": "Updated collection matching your actual implementation",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Gateway Endpoints",
+      "item": [
+        {
+          "name": "Upload File",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "// Extract filename from response",
+                  "var responseText = pm.response.text();",
+                  "console.log('Upload response:', responseText);",
+                  "",
+                  "// Extract filename for next request",
+                  "var match = responseText.match(/Uploaded \\d+ chunks for (.+)/);",
+                  "if (match) {",
+                  "    pm.environment.set('uploaded_filename', match[1]);",
+                  "    console.log('Uploaded filename:', match[1]);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "src": [],
+                  "description": "Select any file to upload"
+                }
+              ]
+            },
+            "url": {
+              "raw": "http://localhost:8080/files",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "8080",
+              "path": ["files"]
+            },
+            "description": "Upload a file. The system will split it into chunks and store them across storage nodes."
+          },
+          "response": []
+        },
+        {
+          "name": "Download File",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:8080/files/:filename",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "8080",
+              "path": ["files", ":filename"],
+              "variable": [
+                {
+                  "key": "filename",
+                  "value": "redad.jpg",
+                  "description": "The filename you uploaded (e.g., redad.jpg)"
+                }
+              ]
+            },
+            "description": "Download a file by its filename. The system will retrieve all chunks and merge them."
+          },
+          "response": []
+        },
+        {
+          "name": "Get Membership Nodes",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:8080/membership/nodes",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "8080",
+              "path": ["membership", "nodes"]
+            },
+            "description": "Get list of all registered nodes"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Up Nodes",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:8080/membership/nodes/up",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "8080",
+              "path": ["membership", "nodes", "up"]
+            },
+            "description": "Get list of healthy nodes"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Down Nodes",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:8080/membership/nodes/down",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "8080",
+              "path": ["membership", "nodes", "down"]
+            },
+            "description": "Get list of down nodes"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Storage Node 1 (Port 9001)",
+      "item": [
+        {
+          "name": "Write Chunk",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/octet-stream"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "Test data from Node 1 - {{$randomInt}}"
+            },
+            "url": {
+              "raw": "http://localhost:9001/chunks/test-chunk-1",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "9001",
+              "path": ["chunks", "test-chunk-1"]
+            },
+            "description": "Write a chunk to storage node 1"
+          },
+          "response": []
+        },
+        {
+          "name": "Read Chunk",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:9001/chunks/test-chunk-1",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "9001",
+              "path": ["chunks", "test-chunk-1"]
+            },
+            "description": "Read a chunk from storage node 1"
+          },
+          "response": []
+        },
+        {
+          "name": "List All Chunks",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:9001/chunks",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "9001",
+              "path": ["chunks"]
+            },
+            "description": "List all chunks stored on node 1"
+          },
+          "response": []
+        },
+        {
+          "name": "Check Chunk Exists (HEAD)",
+          "request": {
+            "method": "HEAD",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:9001/chunks/test-chunk-1",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "9001",
+              "path": ["chunks", "test-chunk-1"]
+            },
+            "description": "Check if a chunk exists without downloading it"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Storage Node 2 (Port 9002)",
+      "item": [
+        {
+          "name": "Write Chunk",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/octet-stream"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "Test data from Node 2 - {{$randomInt}}"
+            },
+            "url": {
+              "raw": "http://localhost:9002/chunks/test-chunk-2",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "9002",
+              "path": ["chunks", "test-chunk-2"]
+            },
+            "description": "Write a chunk to storage node 2"
+          },
+          "response": []
+        },
+        {
+          "name": "Read Chunk",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:9002/chunks/test-chunk-2",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "9002",
+              "path": ["chunks", "test-chunk-2"]
+            },
+            "description": "Read a chunk from storage node 2"
+          },
+          "response": []
+        },
+        {
+          "name": "List All Chunks",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:9002/chunks",
+              "protocol": "protocol": "http",
+              "host": ["localhost"],
+              "port": "9002",
+              "path": ["chunks"]
+            },
+            "description": "List all chunks stored on node 2"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Storage Node 3 (Port 9003)",
+      "item": [
+        {
+          "name": "Write Chunk",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/octet-stream"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "Test data from Node 3 - {{$randomInt}}"
+            },
+            "url": {
+              "raw": "http://localhost:9003/chunks/test-chunk-3",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "9003",
+              "path": ["chunks", "test-chunk-3"]
+            },
+            "description": "Write a chunk to storage node 3"
+          },
+          "response": []
+        },
+        {
+          "name": "Read Chunk",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:9003/chunks/test-chunk-3",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "9003",
+              "path": ["chunks", "test-chunk-3"]
+            },
+            "description": "Read a chunk from storage node 3"
+          },
+          "response": []
+        },
+        {
+          "name": "List All Chunks",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:9003/chunks",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "9003",
+              "path": ["chunks"]
+            },
+            "description": "List all chunks stored on node 3"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Testing Scenarios",
+      "item": [
+        {
+          "name": "Scenario 1: Upload and Download",
+          "item": [
+            {
+              "name": "1. Upload File",
+              "request": {
+                "method": "POST",
+                "header": [],
+                "body": {
+                  "mode": "formdata",
+                  "formdata": [
+                    {
+                      "key": "file",
+                      "type": "file",
+                      "src": []
+                    }
+                  ]
+                },
+                "url": {
+                  "raw": "http://localhost:8080/files",
+                  "protocol": "http",
+                  "host": ["localhost"],
+                  "port": "8080",
+                  "path": ["files"]
+                }
+              }
+            },
+            {
+              "name": "2. Check Storage Nodes",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "http://localhost:9001/chunks",
+                  "protocol": "http",
+                  "host": ["localhost"],
+                  "port": "9001",
+                  "path": ["chunks"]
+                }
+              }
+            },
+            {
+              "name": "3. Download File",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "http://localhost:8080/files/:filename",
+                  "protocol": "http",
+                  "host": ["localhost"],
+                  "port": "8080",
+                  "path": ["files", ":filename"],
+                  "variable": [
+                    {
+                      "key": "filename",
+                      "value": "your-file.jpg"
+                    }
+                  ]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "name": "Scenario 2: Direct Chunk Operations",
+          "item": [
+            {
+              "name": "1. Write to Node 1",
+              "request": {
+                "method": "PUT",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/octet-stream"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "Hello from Node 1!"
+                },
+                "url": {
+                  "raw": "http://localhost:9001/chunks/my-data",
+                  "protocol": "http",
+                  "host": ["localhost"],
+                  "port": "9001",
+                  "path": ["chunks", "my-data"]
+                }
+              }
+            },
+            {
+              "name": "2. Read from Node 1",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "http://localhost:9001/chunks/my-data",
+                  "protocol": "http",
+                  "host": ["localhost"],
+                  "port": "9001",
+                  "path": ["chunks", "my-data"]
+                }
+              }
+            },
+            {
+              "name": "3. Read from Node 2 (if replicated)",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "http://localhost:9002/chunks/my-data",
+                  "protocol": "http",
+                  "host": ["localhost"],
+                  "port": "9002",
+                  "path": ["chunks", "my-data"]
+                }
+              }
+            }
+          ]
+        },
+        {
+          "name": "Scenario 3: Check Membership",
+          "item": [
+            {
+              "name": "1. Get All Nodes",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "http://localhost:8080/membership/nodes",
+                  "protocol": "http",
+                  "host": ["localhost"],
+                  "port": "8080",
+                  "path": ["membership", "nodes"]
+                }
+              }
+            },
+            {
+              "name": "2. Get Up Nodes",
+              "request": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "http://localhost:8080/membership/nodes/up",
+                  "protocol": "http",
+                  "host": ["localhost"],
+                  "port": "8080",
+                  "path": ["membership", "nodes", "up"]
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+

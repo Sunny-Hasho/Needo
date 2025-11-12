@@ -1,0 +1,31 @@
+syntax = "proto3";
+
+package com.example.demo.cluster;
+
+option java_multiple_files = true;
+option java_package = "com.example.demo.cluster";
+option java_outer_classname = "ClusterProto";
+
+message Empty {}
+
+message StatusResponse {
+  string node_id = 1;
+  bool is_leader = 2;
+  string leader_id = 3;
+}
+
+message Heartbeat {
+  string node_id = 1;
+  int64 time_ms = 2;
+}
+
+service ClusterService {
+  rpc GetStatus(Empty) returns (StatusResponse);
+  rpc HeartbeatStream(stream Heartbeat) returns (Empty);
+}
+
+
+
+
+
+
