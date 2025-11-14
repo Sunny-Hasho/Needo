@@ -1,5 +1,7 @@
 package com.example.demo.membership;
 
+import com.example.demo.common.ChaosController;
+
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Profile;
 import org.springframework.http.HttpEntity;
@@ -30,6 +32,10 @@ public class HeartbeatSender {
 
     @Scheduled(fixedRate = 1000)
     public void sendHeartbeat() {
+        if (!ChaosController.isHealthy) {
+            // Simulation: Node is "dead", so no heartbeats
+            return;
+        }
         try {
             HeartbeatRequest request = new HeartbeatRequest(nodeId, serverPort);
             HttpHeaders headers = new HttpHeaders();
