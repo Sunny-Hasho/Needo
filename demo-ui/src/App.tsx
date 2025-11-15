@@ -1,10 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { HardDrive, Cloud, Server, UploadCloud, Trash2, Download, Activity, CheckCircle2, XCircle, File as FileIcon, Box, X } from 'lucide-react';
+import { 
+  Cloud, HardDrive, LayoutGrid as Layout, Server, Upload, Trash2, 
+  Download, Activity, CheckCircle, XCircle, File as FileIcon, 
+  X, Zap, Shield, Info, RefreshCw
+} from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 
 const API_URL = 'http://localhost:8080';
 
+// Types
 interface NodeHealth {
   upNodesCount: number;
   downNodesCount: number;
@@ -34,10 +39,26 @@ interface ClusterHealth {
 interface Manifest {
   fileId: string;
   chunkIds: string[];
-  replicas: Record<string, string[]>; // chunkId -> list of node URLs
+  replicas: Record<string, string[]>;
   version: number;
   timestamp: number;
   chunkCount: number;
+}
+
+interface ModalState {
+  type: 'confirm' | 'alert' | 'error';
+  title: string;
+  message: string;
+  onConfirm?: () => void;
+  onCancel?: () => void;
+  confirmLabel?: string;
+  cancelLabel?: string;
+  isDestructive?: boolean;
+}
+
+interface NotificationState {
+  message: string;
+  type: 'success' | 'error';
 }
 
 export default function App() {
@@ -46,6 +67,13 @@ export default function App() {
   const [files, setFiles] = useState<Manifest[]>([]);
   const [isUploading, setIsUploading] = useState(false);
   const [selectedFileId, setSelectedFileId] = useState<string | null>(null);
+  const [activeModal, setActiveModal] = useState<ModalState | null>(null);
+  const [notification, setNotification] = useState<NotificationState | null>(null);
+
+  const showNotification = (message: string, type: 'success' | 'error' = 'success') => {
+    setNotification({ message, type });
+    setTimeout(() => setNotification(null), 4000);
+  };
 
   // Poll Health
   useEffect(() => {
@@ -91,9 +119,14 @@ export default function App() {
 
     try {
       await axios.post(`${API_URL}/files`, formData);
+      showNotification("Upload successful");
     } catch (err) {
-      alert("Failed to upload file");
-      console.error(err);
+      setActiveModal({
+        type: 'error',
+        title: 'Upload Failed',
+        message: 'Could not complete the file upload. Please check your network connection.',
+        confirmLabel: 'OK'
+      });
     } finally {
       setIsUploading(false);
       if (e.target) e.target.value = '';
@@ -102,390 +135,380 @@ export default function App() {
 
   const handleDownload = (filename: string) => {
     window.open(`${API_URL}/files/${filename}`, '_blank');
+    showNotification("Download started");
   };
 
   const handleDelete = async (filename: string) => {
-    if (!confirm(`Are you sure you want to delete ${filename}?`)) return;
-    try {
-      await axios.delete(`${API_URL}/files/${filename}`);
-    } catch (e) {
-      alert("Failed to delete. Ensure ZAB metadata nodes are healthy.");
-    }
+    setActiveModal({
+      type: 'confirm',
+      title: 'Delete Shard',
+      message: `Are you sure you want to permanently remove "${filename}" from the distributed archive?`,
+      confirmLabel: 'Delete',
+      cancelLabel: 'Cancel',
+      isDestructive: true,
+      onConfirm: async () => {
+        try {
+          await axios.delete(`${API_URL}/files/${filename}`);
+          setActiveModal(null);
+          showNotification("File data deleted");
+        } catch (e) {
+          setActiveModal({
+            type: 'error',
+            title: 'Action Failed',
+            message: 'An error occurred while deleting the file chunks.',
+            confirmLabel: 'OK'
+          });
+        }
+      }
+    });
   };
 
   const handleToggleNode = async (url: string) => {
     const port = url.split(':').pop();
     const isCurrentlyUp = health?.storage.upNodeUrls.includes(url);
-    const action = isCurrentlyUp ? "Kill/Simulate Failure" : "Bring UP";
+    const action = isCurrentlyUp ? "Deactivate" : "Activate";
     
-    if (!confirm(`Confirm: ${action} for Node on port ${port}?`)) return;
-    
-    try {
-      // Direct call to the node's chaos endpoint
-      await axios.post(`${url}/chaos/toggle`);
-      // No alert needed, the UI will poll and update automatically
-    } catch (e) {
-      console.error("Failed to toggle node health", e);
-      alert("Error reaching node. If it was a hard crash (System.exit), you must restart it manually in terminal.");
-    }
+    setActiveModal({
+      type: 'confirm',
+      title: `${action} Node ${port}`,
+      message: isCurrentlyUp 
+        ? `Are you sure you want to deactivate Node ${port}? This will simulate a cluster partition or failure.`
+        : `Activate Node ${port} and rejoin it to the distributed cluster?`,
+      confirmLabel: isCurrentlyUp ? 'Deactivate' : 'Activate',
+      cancelLabel: 'Cancel',
+      isDestructive: isCurrentlyUp,
+      onConfirm: async () => {
+        try {
+          await axios.post(`${API_URL}/api/chaos/toggle`, { url });
+          setActiveModal(null);
+          showNotification(`Node ${port} ${isCurrentlyUp ? 'deactivated' : 'activated'}`);
+        } catch (e) {
+          setActiveModal({
+            type: 'error',
+            title: 'Command Failed',
+            message: 'The chaos command could not be delivered to the gateway.',
+            confirmLabel: 'OK'
+          });
+        }
+      }
+    });
   };
 
   return (
-    <div className="flex h-screen bg-gray-50 text-gray-900 font-sans">
-      {/* Sidebar */}
-      <div className="w-64 bg-white border-r border-gray-200 flex flex-col">
-        <div className="p-6 flex items-center space-x-3 text-brand-600">
-          <Cloud className="w-8 h-8" />
-          <span className="text-xl font-bold tracking-tight">NeedoDrive</span>
+    <div className="flex h-screen bg-white text-apple-900 font-sans">
+      {/* Apple-style Sidebar */}
+      <aside className="w-64 bg-apple-50 border-r border-apple-200 flex flex-col p-6 space-y-8">
+        <div className="flex items-center space-x-3 px-1">
+           <img src="/needo.png" alt="Needo" className="w-8 h-8 object-contain" />
+           <span className="text-lg font-bold tracking-tight text-apple-900">Needo</span>
         </div>
-        
-        <nav className="flex-1 px-4 space-y-2 mt-4">
+
+        <nav className="flex-1 space-y-1">
           <button 
             onClick={() => setActiveTab('files')}
-            className={`flex items-center space-x-3 w-full px-4 py-3 rounded-xl font-medium transition-colors ${
-              activeTab === 'files' ? 'bg-brand-50 text-brand-600' : 'text-gray-600 hover:bg-gray-100'
+            className={`flex items-center space-x-3 w-full px-4 py-2.5 rounded-apple transition-colors text-sm font-medium ${
+              activeTab === 'files' ? 'bg-apple-200 text-apple-900' : 'text-apple-500 hover:bg-apple-100 hover:text-apple-900'
             }`}
           >
-            <HardDrive className="w-5 h-5" />
-            <span>My Files</span>
+            <HardDrive strokeWidth={1.2} size={18} />
+            <span>Files</span>
           </button>
           <button 
             onClick={() => setActiveTab('dashboard')}
-            className={`flex items-center space-x-3 w-full px-4 py-3 rounded-xl font-medium transition-colors ${
-              activeTab === 'dashboard' ? 'bg-brand-50 text-brand-600' : 'text-gray-600 hover:bg-gray-100'
+            className={`flex items-center space-x-3 w-full px-4 py-2.5 rounded-apple transition-colors text-sm font-medium ${
+              activeTab === 'dashboard' ? 'bg-apple-200 text-apple-900' : 'text-apple-500 hover:bg-apple-100 hover:text-apple-900'
             }`}
           >
-            <Activity className="w-5 h-5" />
-            <span>Cluster Dashboard</span>
+            <Layout strokeWidth={1.2} size={18} />
+            <span>Dashboard</span>
           </button>
         </nav>
 
-        {/* Global Progress Tracking */}
+        {/* Global Monitor Placeholder */}
         {health && (
-          <div className="p-6 border-t border-gray-100">
-            <div className="flex items-center justify-between text-sm mb-2">
-              <span className="text-gray-500 font-medium tracking-tight">Storage Health</span>
-              <span className="text-brand-600 font-bold">{health.storage.upNodesCount}/{health.storage.totalNodes}</span>
-            </div>
-            <div className="w-full bg-gray-200 rounded-full h-1.5 overflow-hidden">
-              <div 
-                className={`h-full transition-all duration-500 ${health.storage.upNodesCount < health.storage.totalNodes ? 'bg-orange-500' : 'bg-brand-500'}`}
-                style={{ width: `${(health.storage.upNodesCount / health.storage.totalNodes) * 100}%` }}
-              ></div>
-            </div>
-            <div className="mt-3 flex items-center space-x-2">
-              <div className={`w-2 h-2 rounded-full animate-pulse ${health.storage.upNodesCount < 2 ? 'bg-red-500' : 'bg-green-500'}`}></div>
-              <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">
-                {health.storage.upNodesCount < health.storage.writeQuorum ? 'QUORUM LOSS POSSIBLE' : 'SYSTEM HEALTHY'}
-              </span>
-            </div>
+          <div className="px-2 pb-2">
+             <div className="flex items-center justify-between text-[10px] text-apple-500 font-medium uppercase tracking-wider mb-2">
+               <span>System Status</span>
+               <span className="text-apple-900">{health.storage.upNodesCount}/{health.storage.totalNodes}</span>
+             </div>
+             <div className="h-1 bg-apple-200 rounded-full overflow-hidden">
+                <div 
+                  className="h-full bg-apple-900 transition-all duration-1000"
+                  style={{ width: `${(health.storage.upNodesCount / health.storage.totalNodes) * 100}%` }}
+                />
+             </div>
           </div>
         )}
-      </div>
+      </aside>
 
       {/* Main Content */}
-      <div className="flex-1 overflow-auto flex flex-col">
-        <header className="bg-white border-b border-gray-200 px-8 py-5 flex items-center justify-between sticky top-0 z-10 shrink-0">
-          <h1 className="text-2xl font-black text-gray-800 tracking-tighter uppercase">
-            {activeTab === 'files' ? 'Archive' : 'Pulse Monitor'}
-          </h1>
-          <div className="flex items-center space-x-4">
-            {health && (
-              <div className="px-4 py-1.5 bg-gray-100 rounded-full text-xs font-mono text-gray-500 flex items-center space-x-2">
-                <span className="w-2 h-2 bg-blue-400 rounded-full animate-ping"></span>
-                <span>LAMPORT CLOCK: {health.lamportClock}</span>
-              </div>
-            )}
+      <main className="flex-1 overflow-auto flex flex-col">
+        <header className="px-8 py-6 flex items-center justify-between sticky top-0 bg-white/80 backdrop-blur-xl z-20 border-b border-apple-100">
+          <div>
+            <h1 className="text-3xl font-semibold tracking-tight text-black">
+              {activeTab === 'files' ? 'Archive' : 'Dashboard'}
+            </h1>
+            <p className="text-apple-500 text-[12px] mt-1">
+              {activeTab === 'files' ? 'Distributed storage chunks.' : 'System replication health.'}
+            </p>
+          </div>
+
+          <div className="flex items-center space-x-3">
             {activeTab === 'files' && (
-              <div className="relative">
-                <input 
-                  type="file" 
-                  id="file-upload" 
-                  className="hidden" 
-                  onChange={handleUpload} 
-                  disabled={isUploading}
-                />
+              <div className="flex items-center space-x-2">
+                <input type="file" id="file-upload" className="hidden" onChange={handleUpload} disabled={isUploading} />
                 <label 
                   htmlFor="file-upload" 
-                  className={`flex items-center space-x-2 px-6 py-2.5 rounded-full font-bold cursor-pointer transition-all shadow-lg active:scale-95
-                    ${isUploading ? 'bg-gray-100 text-gray-400' : 'bg-black text-white hover:bg-gray-800'}`}
+                  className={`apple-button-primary cursor-pointer flex items-center space-x-2 text-sm shadow-md transition-all active:scale-95 px-5 py-2
+                    ${isUploading ? 'opacity-50 cursor-not-allowed' : ''}`}
                 >
-                  <UploadCloud className="w-5 h-5" />
-                  <span>{isUploading ? 'UPLOADING...' : 'UPLOAD'}</span>
+                  {isUploading ? <RefreshCw className="animate-spin w-4 h-4" /> : <Upload strokeWidth={1.5} size={16} />}
+                  <span>{isUploading ? 'Uploading...' : 'Upload'}</span>
                 </label>
               </div>
+            )}
+            {health && (activeTab === 'dashboard') && (
+               <div className="px-3 py-1.5 apple-card border-none text-[10px] text-apple-500 font-mono">
+                  CLOCK: {health.lamportClock}
+               </div>
             )}
           </div>
         </header>
 
-        <main className="p-8 flex-1">
+        <section className="px-8 py-6 flex-1">
           {activeTab === 'files' ? (
-            <div className="space-y-6">
-              <div className="bg-white rounded-2xl shadow-xl border border-gray-100 overflow-hidden">
-                <table className="w-full text-left border-collapse">
-                  <thead>
-                    <tr className="bg-gray-900 border-b border-gray-800 text-[11px] font-black text-gray-400 uppercase tracking-widest">
-                      <th className="py-4 px-6">Identifer</th>
-                      <th className="py-4 px-6 text-center">Replication Status</th>
-                      <th className="py-4 px-6">Timestamp</th>
-                      <th className="py-4 px-6 text-right">Control</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-50">
-                    {files.length === 0 ? (
-                      <tr>
-                        <td colSpan={4} className="py-24 text-center text-gray-300">
-                          <Cloud className="w-16 h-16 mx-auto mb-4 opacity-10" />
-                          <p className="font-bold uppercase tracking-widest text-sm">Cluster Vault Empty</p>
-                        </td>
-                      </tr>
-                    ) : files.map((f) => (
-                      <tr key={f.fileId} className="hover:bg-gray-50/50 transition-colors group">
-                        <td className="py-5 px-6 font-bold text-gray-800 flex items-center space-x-3">
-                          <div className="p-2 bg-brand-50 rounded-lg text-brand-600">
-                            <FileIcon className="w-5 h-5" />
-                          </div>
-                          <span className="truncate max-w-[200px]">{f.fileId}</span>
-                        </td>
-                        <td className="py-5 px-6 text-center">
-                          <button 
-                            onClick={() => setSelectedFileId(f.fileId)}
-                            className="inline-flex items-center space-x-2 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-tighter bg-blue-50 text-blue-600 hover:bg-blue-100 transition-colors"
-                          >
-                            <Server className="w-3 h-3" />
-                            <span>{f.chunkCount} Chunks (N=3)</span>
-                          </button>
-                        </td>
-                        <td className="py-5 px-6 text-gray-500 text-xs font-medium">
-                          {formatDistanceToNow(new Date(f.timestamp), { addSuffix: true })}
-                        </td>
-                        <td className="py-5 px-6 text-right space-x-2">
-                          <button 
-                            onClick={() => handleDownload(f.fileId)}
-                            className="p-2.5 text-gray-400 hover:text-black hover:bg-gray-100 rounded-xl transition-all"
-                            title="Download"
-                          >
-                            <Download className="w-5 h-5" />
-                          </button>
-                          <button 
-                            onClick={() => handleDelete(f.fileId)}
-                            className="p-2.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all"
-                            title="Delete"
-                          >
-                            <Trash2 className="w-5 h-5" />
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-
-              {/* Chunk Mapping Modal */}
-              {selectedFileId && (
-                <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-                  <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-300">
-                    {(() => {
-                      const file = files.find(f => f.fileId === selectedFileId);
-                      if (!file) return null;
-                      return (
-                        <>
-                          <div className="p-6 border-b border-slate-800 flex justify-between items-center bg-slate-800/50">
+            <div className="space-y-3 animate-in fade-in duration-700">
+               {files.length === 0 ? (
+                 <div className="apple-card p-12 text-center border-dashed">
+                    <Cloud strokeWidth={1} size={40} className="mx-auto text-apple-200 mb-3" />
+                    <p className="text-apple-500 text-sm font-medium">Your archive is empty.</p>
+                 </div>
+               ) : (
+                 <div className="grid grid-cols-1 gap-1.5">
+                    {files.map(f => (
+                      <div key={f.fileId} className="flex items-center justify-between p-4 apple-card hover:bg-apple-100/50 transition-all duration-200 group border-none">
+                         <div className="flex items-center space-x-4">
+                            <div className="w-10 h-10 bg-white rounded-lg flex items-center justify-center shadow-sm border border-apple-100">
+                               <FileIcon strokeWidth={1.2} size={20} className="text-apple-900" />
+                            </div>
                             <div>
-                              <h3 className="text-xl font-bold text-white flex items-center gap-2">
-                                <Box className="w-5 h-5 text-indigo-400" />
-                                Data Distribution: {file.fileId}
-                              </h3>
-                              <p className="text-slate-400 text-sm mt-1">Physical chunk mapping across cluster</p>
+                               <h3 className="text-[15px] font-medium text-black truncate max-w-xs">{f.fileId}</h3>
+                               <p className="text-[12px] text-apple-500 mt-0.5 opacity-80">
+                                 {formatDistanceToNow(new Date(f.timestamp), { addSuffix: true })} • {f.chunkCount} Nodes
+                               </p>
                             </div>
+                         </div>
+                         <div className="flex items-center space-x-1">
                             <button 
-                              onClick={() => setSelectedFileId(null)}
-                              className="p-2 hover:bg-slate-700 rounded-full text-slate-400 hover:text-white transition-colors"
+                              onClick={() => setSelectedFileId(f.fileId)}
+                               className="p-2 text-apple-500 hover:text-black hover:bg-white rounded-full transition-all"
+                               title="Details"
                             >
-                              <X className="w-6 h-6" />
+                              <Info strokeWidth={1.2} size={18} />
                             </button>
-                          </div>
-                          <div className="p-6 max-h-[60vh] overflow-y-auto custom-scrollbar">
-                            <div className="space-y-4">
-                              {file.chunkIds.map((chunkId, idx) => (
-                                <div key={chunkId} className="bg-slate-800/50 border border-slate-700 rounded-xl p-4 flex flex-col gap-3">
-                                  <div className="flex justify-between items-center">
-                                    <span className="text-xs font-mono text-indigo-300 bg-indigo-500/10 px-2 py-1 rounded">
-                                      CHUNK_{idx + 1}
-                                    </span>
-                                    <span className="text-[10px] text-slate-500 font-mono">{chunkId}</span>
-                                  </div>
-                                  <div className="flex flex-wrap gap-2">
-                                    {file.replicas[chunkId]?.map(nodeUrl => {
-                                      const nodeNum = nodeUrl.split(':').pop();
-                                      const isDown = health?.storage.downNodeUrls.includes(nodeUrl);
-                                      return (
-                                        <div 
-                                          key={nodeUrl} 
-                                          className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-xs font-medium ${
-                                            isDown 
-                                              ? 'bg-red-500/10 border-red-500/30 text-red-400' 
-                                              : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
-                                          }`}
-                                        >
-                                          <Server className="w-3 h-3" />
-                                          Node: {nodeNum}
-                                        </div>
-                                      );
-                                    })}
-                                  </div>
+                            <button 
+                              onClick={() => handleDownload(f.fileId)}
+                              className="p-2 text-apple-500 hover:text-black hover:bg-white rounded-full transition-all"
+                              title="Download"
+                            >
+                              <Download strokeWidth={1.2} size={18} />
+                            </button>
+                            <button 
+                              onClick={() => handleDelete(f.fileId)}
+                              className="p-2 text-apple-500 hover:text-status-error hover:bg-white rounded-full transition-all"
+                              title="Delete"
+                            >
+                              <Trash2 strokeWidth={1.2} size={18} />
+                            </button>
+                         </div>
+                      </div>
+                    ))}
+                 </div>
+               )}
+
+               {/* Simple Apple Modal for Chunks */}
+               {selectedFileId && (
+                 <div className="fixed inset-0 bg-white/60 backdrop-blur-2xl flex items-center justify-center z-50 p-4 animate-in fade-in duration-300">
+                    <div className="bg-white border border-apple-200 p-8 rounded-apple-xl w-full max-w-md shadow-2xl relative">
+                       <button onClick={() => setSelectedFileId(null)} className="absolute top-5 right-5 text-apple-500 hover:text-black">
+                          <X strokeWidth={1.2} size={20} />
+                       </button>
+                       <h3 className="text-xl font-semibold tracking-tight mb-1">Chunk Distribution</h3>
+                       <p className="text-apple-500 text-xs mb-6 truncate">{selectedFileId}</p>
+                       
+                       <div className="space-y-2 max-h-[35vh] overflow-y-auto px-1">
+                          {files.find(f => f.fileId === selectedFileId)?.chunkIds.map((cid, idx) => (
+                            <div key={cid} className="p-3 apple-card border-none bg-apple-100/50 flex flex-col gap-1.5">
+                               <span className="text-[9px] font-bold text-apple-500 uppercase tracking-widest opacity-80">Chunk {idx + 1}</span>
+                               <div className="flex flex-wrap gap-1.5">
+                                  {files.find(f => f.fileId === selectedFileId)?.replicas[cid]?.map(url => (
+                                    <div key={url} className="px-2 py-0.5 bg-white text-[10px] font-medium rounded-full border border-apple-100 flex items-center gap-1">
+                                       <div className={`w-1 h-1 rounded-full ${health?.storage.downNodeUrls.includes(url) ? 'bg-status-error' : 'bg-status-success'}`} />
+                                       Port {url.split(':').pop()}
+                                    </div>
+                                  ))}
                                 </div>
-                              ))}
                             </div>
-                          </div>
-                          <div className="p-4 bg-slate-800/30 border-t border-slate-800 flex justify-end">
-                            <button 
-                              onClick={() => setSelectedFileId(null)}
-                              className="px-6 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-xl transition-all font-medium"
-                            >
-                              Close
-                            </button>
-                          </div>
-                        </>
-                      );
-                    })()}
-                  </div>
-                </div>
-              )}
+                          ))}
+                       </div>
+                    </div>
+                 </div>
+               )}
             </div>
           ) : (
-            <div className="space-y-12">
-              {!health ? (
-                 <div className="flex items-center justify-center py-20 text-gray-300 animate-pulse font-black uppercase tracking-widest">Syncing with Cluster...</div>
-              ) : (
-                <>
-                  {/* Overview Cards */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-                    <div className="bg-white p-8 rounded-3xl shadow-xl border border-gray-100 relative overflow-hidden group">
-                      <div className="absolute top-0 right-0 w-32 h-32 bg-brand-50 rounded-bl-full -mr-16 -mt-16 opacity-50 transition-transform group-hover:scale-110"></div>
-                      <Server className="w-8 h-8 text-brand-600 mb-4" />
-                      <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Storage Status</p>
-                      <h3 className="text-4xl font-black tracking-tighter text-gray-900 mt-1">
-                        {health.storage.upNodesCount} <span className="text-gray-300 text-2xl">/ {health.storage.totalNodes}</span>
-                      </h3>
-                      <div className="mt-4 flex items-center space-x-2 text-[10px] font-bold text-brand-600 bg-brand-50 px-3 py-1 rounded-full w-fit">
-                        <CheckCircle2 className="w-3 h-3" />
-                        <span>QUORUM SAFE</span>
+            <div className="space-y-6 animate-in fade-in duration-700">
+               {health ? (
+                 <>
+                   {/* Balanced Status Cards - Compact */}
+                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div className="p-5 apple-card border-none bg-apple-100/30">
+                         <div className="flex items-center space-x-2 text-apple-500 mb-3 font-semibold tracking-widest text-[9px] uppercase">
+                            <Server strokeWidth={1.2} size={14} />
+                            <span>Storage Cluster</span>
+                         </div>
+                         <h2 className="text-xl font-medium tracking-tight mt-0.5">
+                           {health.storage.upNodesCount} <span className="text-apple-500 font-light">/</span> {health.storage.totalNodes}
+                         </h2>
                       </div>
-                    </div>
-                    
-                    <div className="bg-white p-8 rounded-3xl shadow-xl border border-gray-100 relative overflow-hidden group">
-                      <div className="absolute top-0 right-0 w-32 h-32 bg-blue-50 rounded-bl-full -mr-16 -mt-16 opacity-50 transition-transform group-hover:scale-110"></div>
-                      <Activity className="w-8 h-8 text-blue-600 mb-4" />
-                      <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Consistency Quorum</p>
-                      <h3 className="text-4xl font-black tracking-tighter text-gray-900 mt-1">
-                        W={health.storage.writeQuorum} <span className="text-gray-300">|</span> R={health.storage.readQuorum}
-                      </h3>
-                      <div className="mt-4 flex items-center space-x-2 text-[10px] font-bold text-blue-600 bg-blue-50 px-3 py-1 rounded-full w-fit">
-                        <Activity className="w-3 h-3" />
-                        <span>STRONG CONSISTENCY (W+R &gt; N)</span>
+                      <div className="p-5 apple-card border-none bg-apple-100/30">
+                         <div className="flex items-center space-x-2 text-apple-500 mb-3 font-semibold tracking-widest text-[9px] uppercase">
+                            <Activity strokeWidth={1.2} size={14} />
+                            <span>Read/Write</span>
+                         </div>
+                         <h2 className="text-xl font-medium tracking-tight mt-0.5">
+                            W{health.storage.writeQuorum} <span className="text-apple-500 font-light">•</span> R{health.storage.readQuorum}
+                         </h2>
                       </div>
-                    </div>
+                      <div className="p-5 apple-card border-none bg-apple-100/30">
+                         <div className="flex items-center space-x-2 text-apple-500 mb-3 font-semibold tracking-widest text-[9px] uppercase">
+                            <Shield strokeWidth={1.2} size={14} />
+                            <span>Metadata Leader</span>
+                         </div>
+                         <h2 className="text-lg font-medium tracking-tight mt-0.5 truncate ">
+                            {health.zabCluster.leader ? `Metadata Node ${health.zabCluster.leader.split('-').pop()}` : "No Leader"}
+                         </h2>
+                      </div>
+                   </div>
 
-                    <div className="bg-white p-8 rounded-3xl shadow-xl border border-gray-100 relative overflow-hidden group">
-                      <div className="absolute top-0 right-0 w-32 h-32 bg-purple-50 rounded-bl-full -mr-16 -mt-16 opacity-50 transition-transform group-hover:scale-110"></div>
-                      <Cloud className="w-8 h-8 text-purple-600 mb-4" />
-                      <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Consensus Leader</p>
-                      <h3 className="text-4xl font-black tracking-tighter text-purple-700 mt-1 uppercase">
-                        {health.zabCluster.leader ? health.zabCluster.leader.split('-').pop() : "NONE"}
-                      </h3>
-                      <div className="mt-4 flex items-center space-x-2 text-[10px] font-bold text-purple-600 bg-purple-50 px-3 py-1 rounded-full w-fit uppercase">
-                        <CheckCircle2 className="w-3 h-3" />
-                        <span>ZAB PROTOCOL ACTIVE</span>
+                   {/* Consistent Management Section - Compact Dark Edition */}
+                   <div className="p-8 apple-card border-none bg-apple-900 text-white rounded-apple-xl shadow-xl overflow-hidden relative">
+                      {/* Subtle Apple-style background gradient/glass */}
+                      <div className="absolute -top-32 -right-32 w-64 h-64 bg-apple-500/10 rounded-full blur-3xl"></div>
+                      
+                      <div className="flex items-center justify-between mb-8 relative z-10 px-2">
+                         <div>
+                            <h2 className="text-xl font-semibold tracking-tight">Storage Node Control</h2>
+                            <p className="text-apple-500 text-[12px] mt-0.5 font-medium opacity-80">Tap a node to perform health checks.</p>
+                         </div>
+                         <Zap strokeWidth={1} size={22} className="text-white opacity-60" />
                       </div>
-                    </div>
-                  </div>
-
-                  {/* CHAOS CONTROLS */}
-                  <div className="mt-12 bg-gray-900 rounded-[2.5rem] p-12 text-white shadow-2xl">
-                    <div className="flex items-center justify-between mb-8">
-                      <div>
-                        <h2 className="text-3xl font-black tracking-tight uppercase italic">Topology & Chaos</h2>
-                        <p className="text-gray-400 font-medium text-sm">Force server crashes to test self-healing re-replication.</p>
+                      
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 relative z-10">
+                         {[9001, 9002, 9003, 9004].map(port => {
+                           const isUp = health.storage.upNodeUrls.includes(`http://localhost:${port}`);
+                           return (
+                             <button 
+                                key={port} 
+                                onClick={() => handleToggleNode(`http://localhost:${port}`)}
+                                className={`p-4 rounded-lg border transition-all text-left group active:scale-95 ${
+                                  isUp 
+                                    ? 'bg-white/10 border-white/5 hover:bg-white/20' 
+                                    : 'bg-white/5 border-white/5 hover:bg-white/10 opacity-60 grayscale-[0.5]'
+                                }`}
+                             >
+                                <div className="flex justify-between items-start mb-4">
+                                   <span className="text-[8px] uppercase tracking-widest font-bold text-apple-500 opacity-60">ID::{port}</span>
+                                   <div className={`w-2 h-2 rounded-full ${isUp ? 'bg-status-success shadow-[0_0_8px_#34c759]' : 'bg-status-error'}`} />
+                                </div>
+                                <span className="text-[14px] font-medium block leading-none">{isUp ? 'Online' : 'Offline'}</span>
+                                <span className="text-[10px] text-apple-500 mt-2 block font-medium opacity-60 group-hover:opacity-100 transition-opacity">
+                                   {isUp ? 'Select to Kill' : 'Select to Activate'}
+                                </span>
+                             </button>
+                           )
+                         })}
                       </div>
-                      <div className="flex items-center space-x-2 px-6 py-2 bg-red-500/10 border border-red-500/20 rounded-full text-red-500 text-[10px] font-black uppercase tracking-widest animate-pulse">
-                        <span>Fault-Tolerance Testing Active</span>
+                   </div>
+
+                   {/* Metadata Ring - Compact */}
+                   <div className="mt-10 text-center">
+                      <p className="text-[9px] font-bold text-apple-500 uppercase tracking-[0.2em] mb-8">Zab Metadata Cluster</p>
+                      <div className="flex flex-wrap justify-center gap-4">
+                         {[1, 2, 3].map(i => {
+                            const nodeId = `metadata-${i}`;
+                            const isUp = health.zabCluster?.nodesStatus?.[nodeId] === "UP";
+                            const isLeader = health.zabCluster?.leader === nodeId;
+                            return (
+                              <div key={i} className={`p-5 rounded-apple-lg border transition-all duration-300 w-36 bg-white ${
+                                isUp ? 'border-apple-100 shadow-sm' : 'border-apple-50 opacity-20 grayscale'
+                              }`}>
+                                 <div className={`w-8 h-8 mx-auto mb-4 rounded-full flex items-center justify-center ${isUp ? (isLeader ? 'bg-black text-white' : 'bg-apple-100 text-apple-900') : 'bg-apple-100'}`}>
+                                    {isUp ? <CheckCircle size={16} strokeWidth={1.5} /> : <XCircle size={16} strokeWidth={1.5} />}
+                                 </div>
+                                 <span className="text-[9px] font-bold text-apple-500 tracking-widest">Metadata Node {i}</span>
+                                 <p className="text-[12px] font-medium mt-1 leading-tight opacity-90">{isLeader ? 'Leader' : (isUp ? 'Follower' : 'Offline')}</p>
+                              </div>
+                            )
+                         })}
                       </div>
-                    </div>
-                    
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                      {[9001, 9002, 9003, 9004].map((port) => {
-                        const url = `http://localhost:${port}`;
-                        const isUp = health.storage.upNodeUrls?.includes(url);
-                        return (
-                          <div key={port} className={`p-8 rounded-[2rem] transition-all duration-300 border-2 ${
-                            isUp ? 'bg-gray-800/50 border-gray-700 hover:border-brand-500 group' : 'bg-red-950/20 border-red-900/50 grayscale'
-                          }`}>
-                            <div className="flex justify-between items-start mb-6">
-                              <span className="text-xs font-black uppercase tracking-widest text-gray-500">Node {port}</span>
-                              <div className={`w-3 h-3 rounded-full ${isUp ? 'bg-green-500 shadow-[0_0_15px_rgba(34,197,94,0.5)]' : 'bg-red-500'}`}></div>
-                            </div>
-                            <h4 className={`text-2xl font-black tracking-tighter mb-8 ${isUp ? 'text-white' : 'text-gray-600 italic'}`}>
-                              {isUp ? 'OPERATIONAL' : 'OFFLINE'}
-                            </h4>
-                            <button 
-                              onClick={() => handleToggleNode(url)}
-                              className={`w-full py-4 text-center rounded-2xl border transition-all text-[10px] font-black uppercase tracking-widest ${
-                                isUp 
-                                  ? 'bg-white/5 border-white/10 hover:bg-red-500 hover:text-white' 
-                                  : 'bg-green-500/10 border-green-500/20 text-green-500 hover:bg-green-500 hover:text-white'
-                              }`}
-                            >
-                              {isUp ? 'Simulate Failure' : 'Bring UP'}
-                            </button>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  {/* ZAB Detailed List */}
-                  <div className="mt-12">
-                    <h2 className="text-xl font-black text-gray-800 mb-6 uppercase tracking-tight italic text-right">ZAB Consensus Ring</h2>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                      {[1, 2, 3].map((i) => {
-                        const nodeId = `metadata-${i}`;
-                        const isUp = health.zabCluster?.nodesStatus?.[nodeId] === "UP";
-                        const isLeader = health.zabCluster?.leader === nodeId;
-                        
-                        return (
-                          <div key={i} className={`p-8 rounded-[2rem] border-2 transition-all ${
-                            isUp ? (isLeader ? 'bg-purple-50 border-purple-200' : 'bg-white border-gray-100') : 'bg-red-50 border-red-100 grayscale'
-                          }`}>
-                            <div className="flex justify-between items-start mb-6">
-                              <span className="font-bold text-gray-800 flex items-center space-x-2">
-                                <span className="uppercase text-xs tracking-widest text-gray-400">NODE {i}</span>
-                                {isLeader && <span className="px-3 py-1 text-[8px] font-black bg-purple-600 text-white rounded-full tracking-widest">LEADER</span>}
-                              </span>
-                              {isUp ? (
-                                <CheckCircle2 className={`w-6 h-6 ${isLeader ? 'text-purple-600' : 'text-brand-600'}`} />
-                              ) : (
-                                <XCircle className="w-6 h-6 text-red-500" />
-                              )}
-                            </div>
-                            <div className="text-sm font-bold text-gray-400 uppercase tracking-tighter">Port 808{i}</div>
-                            <div className="mt-6 flex items-center space-x-2">
-                              <div className={`w-2 h-2 rounded-full ${isUp ? 'bg-green-500' : 'bg-red-400'}`}></div>
-                              <span className="text-[10px] font-black uppercase tracking-widest text-gray-500">{isUp ? 'SYNCED' : 'PARTITIONED'}</span>
-                            </div>
-                          </div>
-                        )
-                      })}
-                    </div>
-                  </div>
-
-                </>
-              )}
+                   </div>
+                 </>
+               ) : (
+                 <div className="py-20 text-center animate-pulse">
+                    <p className="text-apple-500 text-sm font-medium uppercase tracking-widest">Verifying Connection...</p>
+                 </div>
+               )}
             </div>
           )}
-        </main>
-      </div>
+        </section>
+      </main>
+
+      {/* Custom Modal */}
+      {activeModal && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[100] flex items-center justify-center p-6 animate-in fade-in duration-300">
+          <div className="bg-white rounded-apple-xl max-w-sm w-full shadow-2xl overflow-hidden animate-in zoom-in-95 duration-300 border border-apple-100">
+            <div className="p-8 text-center border-b border-apple-100">
+              <h3 className="text-xl font-bold text-apple-900 mb-3">{activeModal.title}</h3>
+              <p className="text-apple-500 text-[14px] leading-relaxed font-medium">{activeModal.message}</p>
+            </div>
+            <div className="flex divide-x divide-apple-100 uppercase tracking-wide text-[14px] font-bold">
+              {activeModal.type === 'confirm' ? (
+                <>
+                  <button 
+                    onClick={() => setActiveModal(null)}
+                    className="flex-1 py-5 hover:bg-apple-50 text-apple-400 transition-colors"
+                  >
+                    {activeModal.cancelLabel || 'Cancel'}
+                  </button>
+                  <button 
+                    onClick={activeModal.onConfirm}
+                    className={`flex-1 py-5 hover:bg-apple-50 transition-colors ${activeModal.isDestructive ? 'text-status-error' : 'text-apple-900'}`}
+                  >
+                    {activeModal.confirmLabel || 'OK'}
+                  </button>
+                </>
+              ) : (
+                <button 
+                  onClick={() => setActiveModal(null)}
+                  className="flex-1 py-5 hover:bg-apple-50 text-apple-900 transition-colors"
+                >
+                  {activeModal.confirmLabel || 'OK'}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Success Notification */}
+      {notification && (
+        <div className="fixed bottom-10 left-1/2 -translate-x-1/2 z-[110] animate-in slide-in-from-bottom-10 fade-in duration-500">
+          <div className="bg-apple-900 text-white px-8 py-3 rounded-full shadow-2xl flex items-center space-x-3 backdrop-blur-xl border border-white/10">
+            {notification.type === 'success' ? <CheckCircle size={16} className="text-status-success" /> : <XCircle size={16} className="text-status-error" />}
+            <span className="text-[13px] font-medium tracking-wide">{notification.message}</span>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
-
