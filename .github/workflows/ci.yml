@@ -43,7 +43,7 @@ jobs:
         node-version: '20'
         
     - name: Install dependencies
-      run: npm install
+      run: npm install --legacy-peer-deps
       
     - name: Lint and Build
       run: |
