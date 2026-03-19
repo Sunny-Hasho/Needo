@@ -110,6 +110,27 @@ public class GatewayController {
     }
     
     /**
+     * Simulation: Chaos Toggle Proxy - Forward commands to nodes.
+     */
+    @PostMapping("/api/chaos/toggle")
+    public ResponseEntity<String> toggleNode(@RequestBody Map<String, String> payload) {
+        String url = payload.get("url");
+        if (url == null) return ResponseEntity.badRequest().body("No URL provided");
+        
+        try {
+            HttpRequest req = HttpRequest.newBuilder(URI.create(url + "/chaos/toggle"))
+                    .timeout(Duration.ofSeconds(2))
+                    .POST(BodyPublishers.noBody())
+                    .build();
+            
+            HttpResponse<String> res = client.send(req, BodyHandlers.ofString());
+            return ResponseEntity.status(res.statusCode()).body(res.body());
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body("Proxy fail: " + e.getMessage());
+        }
+    }
+
+    /**
      * List all uploaded files
      */
     @GetMapping("/files")

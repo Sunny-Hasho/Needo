@@ -4,7 +4,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.client.RestTemplate;
 import io.grpc.StatusRuntimeException;
-import com.example.demo.cluster.StatusResponse;
+import com.example.demo.cluster .StatusResponse;
 
 import java.util.*;
 import java.util.concurrent.atomic.AtomicBoolean;

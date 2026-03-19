@@ -11,14 +11,15 @@ A distributed file storage system built with **Spring Boot** that demonstrates c
                     │
                     ▼
                Gateway (:8080)  ──────────────►  ZAB Metadata Cluster
-        │                             ├─ Node 1 (:8081) [Leader]
-        │                             ├─ Node 2 (:8082) [Follower]
-        │                             └─ Node 3 (:8083) [Follower]
-        │
-        ├──► Storage Node 1 (:9001)
-        ├──► Storage Node 2 (:9002)
-        ├──► Storage Node 3 (:9003)
-        └──► Storage Node 4 (:9004)
+     
+                   │                             ├─ Node 1 (:8081) [Leader]
+                   │                             ├─ Node 2 (:8082) [Follower]
+                   │                             └─ Node 3 (:8083) [Follower]
+                   │
+                   ├──► Storage Node 1 (:9001)
+                   ├──► Storage Node 2 (:9002)
+                   ├──► Storage Node 3 (:9003)
+                   └──► Storage Node 4 (:9004)
 ```
 
 | Layer | Role |
