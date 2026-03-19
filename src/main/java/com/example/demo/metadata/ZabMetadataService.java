@@ -186,7 +186,12 @@ public class ZabMetadataService {
         try {
             String leaderUrl = discoverLeader();
             String url = leaderUrl + "/zab-meta/cluster/status";
-            ResponseEntity<Map> response = restTemplate.getForEntity(url, Map.class);
+            ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
+                url,
+                HttpMethod.GET,
+                null,
+                new ParameterizedTypeReference<Map<String, Object>>() {}
+            );
             
             if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
                 Map<String, Object> body = response.getBody();
@@ -267,7 +272,12 @@ public class ZabMetadataService {
             try {
                 // Quick health check on cached leader
                 String healthUrl = cachedLeader + "/zab-meta/cluster/status";
-                ResponseEntity<Map> response = restTemplate.getForEntity(healthUrl, Map.class);
+                ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
+                    healthUrl,
+                    HttpMethod.GET,
+                    null,
+                    new ParameterizedTypeReference<Map<String, Object>>() {}
+                );
                 if (response.getStatusCode().is2xxSuccessful()) {
                     Map<String, Object> status = response.getBody();
                     if (status != null && Boolean.TRUE.equals(status.get("isLeader"))) {
@@ -287,7 +297,12 @@ public class ZabMetadataService {
                 String statusUrl = nodeUrl + "/zab-meta/cluster/status";
                 System.out.println("🔍 Checking node status: " + statusUrl);
                 
-                ResponseEntity<Map> response = restTemplate.getForEntity(statusUrl, Map.class);
+                ResponseEntity<Map<String, Object>> response = restTemplate.exchange(
+                    statusUrl,
+                    HttpMethod.GET,
+                    null,
+                    new ParameterizedTypeReference<Map<String, Object>>() {}
+                );
                 
                 if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
                     Map<String, Object> status = response.getBody();

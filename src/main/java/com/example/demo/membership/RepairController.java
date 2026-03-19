@@ -1,7 +1,5 @@
 package com.example.demo.membership;
 
-import com.example.demo.membership.MembershipService;
-import com.example.demo.membership.NodeInfo;
 import com.example.demo.metadata.Manifest;
 import com.example.demo.metadata.ZabMetadataService;
 import org.springframework.context.annotation.Profile;
@@ -148,7 +146,7 @@ public class RepairController implements java.util.function.Consumer<NodeInfo> {
      */
     @Scheduled(fixedRate = 60000) // Every 1 minute
     public void reconcile() {
-        System.out.println("🧹 Reconciliation: Starting Garbage Collection pass...");
+        System.out.println("🧹 Reconciliation: Starting Cluster Health & GC pass...");
         try {
             Map<String, Manifest> allManifests = zabMetadataService.getAllManifests();
             List<NodeInfo> upNodes = membershipService.getUpNodes();
@@ -158,7 +156,18 @@ public class RepairController implements java.util.function.Consumer<NodeInfo> {
                 return;
             }
 
-            // Map chunkId -> Set of authorized node URLs
+            // 1. Build Physical Inventory Map (chunkId -> List of Nodes that have it)
+            Map<String, Set<NodeInfo>> physicalInventory = new HashMap<>();
+            for (NodeInfo node : upNodes) {
+                List<String> chunks = listChunks(node);
+                if (chunks != null) {
+                    for (String chunkId : chunks) {
+                        physicalInventory.computeIfAbsent(chunkId, k -> new HashSet<>()).add(node);
+                    }
+                }
+            }
+
+            // 2. Build Authorized Map (chunkId -> Set of authorized node URLs from ZAB)
             Map<String, Set<String>> authorizedMap = new HashMap<>();
             for (Manifest m : allManifests.values()) {
                 if (m.getReplicas() != null) {
@@ -169,28 +178,64 @@ public class RepairController implements java.util.function.Consumer<NodeInfo> {
                 }
             }
 
+            // 3. PASS 1: Garbage Collection (Delete strays)
             int deletedCount = 0;
             for (NodeInfo node : upNodes) {
-                List<String> physicalChunks = listChunks(node);
-                if (physicalChunks == null) continue;
+                // If a node has a chunk that is not authorized for it, delete it
+                for (String chunkId : listChunks(node)) {
+                    Set<String> authorizedUrls = authorizedMap.get(chunkId);
+                    if (authorizedUrls == null || !authorizedUrls.contains(node.getUrl())) {
+                        System.out.println("🗑️ Reconciliation GC: Found stray chunk " + chunkId + " on Node " + node.getUrl());
+                        if (deleteChunkFromNode(node, chunkId)) deletedCount++;
+                    }
+                }
+            }
 
-                for (String chunkId : physicalChunks) {
-                    Set<String> authorizedNodes = authorizedMap.get(chunkId);
+            // 4. PASS 2: Self-Healing (Fill missing replicas)
+            int healedCount = 0;
+            for (Map.Entry<String, Set<String>> entry : authorizedMap.entrySet()) {
+                String chunkId = entry.getKey();
+                Set<String> authorizedUrls = entry.getValue();
+                
+                Set<NodeInfo> physicalNodes = physicalInventory.getOrDefault(chunkId, new HashSet<>());
+                int currentPhysicalCount = physicalNodes.size();
+                
+                // If manifest says we should have X replicas but physics shows < TARGET_REPLICAS healthy ones
+                if (currentPhysicalCount < TARGET_REPLICAS) {
+                    System.out.println("🩹 Reconciliation Heal: Chunk " + chunkId + " is under-replicated (" + currentPhysicalCount + "/" + TARGET_REPLICAS + ")");
                     
-                    // If chunk is not in ANY manifest OR this node is not an authorized replica
-                    if (authorizedNodes == null || !authorizedNodes.contains(node.getUrl())) {
-                        System.out.println("🗑️ Reconciliation: Found stray chunk " + chunkId + " on unauthorized Node " + node.getUrl());
-                        boolean deleted = deleteChunkFromNode(node, chunkId);
-                        if (deleted) deletedCount++;
+                    // Find a source node that actually has the data
+                    NodeInfo sourceNode = physicalNodes.stream().findFirst().orElse(null);
+                    if (sourceNode == null) {
+                        System.err.println("❌ Critical Heal Error: No healthy source node for " + chunkId);
+                        continue;
+                    }
+
+                    // Find a healthy node that DOESN'T have it yet (and didn't already have it in authorized)
+                    // We prioritize nodes that are not in the current authorized set (since one of those is likely the one that failed)
+                    NodeInfo targetNode = upNodes.stream()
+                            .filter(n -> !physicalNodes.contains(n))
+                            .findFirst()
+                            .orElse(null);
+                    
+                    if (targetNode != null) {
+                        // Find the "failed" URL that we are replacing in the metadata.
+                        // It's any URL in the authorized set that isn't currently UP or doesn't have the chunk.
+                        String failedUrl = authorizedUrls.stream()
+                                .filter(url -> physicalNodes.stream().noneMatch(pn -> pn.getUrl().equals(url)))
+                                .findFirst()
+                                .orElse(null);
+                        
+                        if (failedUrl != null) {
+                            System.out.println("🚀 Reconciliation Heal: Auto-repairing " + chunkId + " | Rebalancing to Node " + targetNode.getUrl() + " to replace " + failedUrl);
+                            CompletableFuture.runAsync(() -> copyChunk(sourceNode, targetNode, chunkId, failedUrl), pool);
+                            healedCount++;
+                        }
                     }
                 }
             }
             
-            if (deletedCount > 0) {
-                System.out.println("✅ Reconciliation: Successfully purged " + deletedCount + " stray chunks across cluster.");
-            } else {
-                System.out.println("✨ Reconciliation: Cluster is clean. No stray chunks found.");
-            }
+            System.out.println("✨ Reconciliation finished. Purged: " + deletedCount + " | Healed: " + healedCount);
 
         } catch (Exception e) {
             System.out.println("⚠️ Reconciliation Error: " + e.getMessage());

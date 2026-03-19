@@ -27,7 +27,6 @@ A distributed file storage system built with **Spring Boot** that demonstrates c
 | **Gateway** | Entry point — handles uploads, downloads, chunking, replication |
 | **Storage Nodes** | Store file chunks on disk with metadata |
 | **ZAB Metadata Cluster** | Consensus-based metadata service — tracks which chunks go where |
-| **Membership Service** | Heartbeat-based health monitoring with auto re-replication |
 
 ---
 
@@ -43,8 +42,10 @@ A distributed file storage system built with **Spring Boot** that demonstrates c
 | **Conflict Detection & Resolution** | Detects concurrent updates; resolves using version vectors + Lamport tiebreaker |
 | **ZAB Consensus** | Leader election + two-phase commit for metadata operations |
 | **Membership & Heartbeat** | Periodic heartbeats; nodes marked DOWN after timeout |
-| **Self-Healing (Re-Replication)** | Automatic chunk re-replication when a node goes DOWN |
-| **Lazy Cleanup** | Garbage collection of orphaned chunks after re-upload |
+| **Self-Healing (Repair)** | Automatic chunk re-replication to healthy nodes when one goes DOWN |
+| **Garbage Collection (GC)** | Automatic purging of "stray" chunks found during reconciliation passes |
+| **Auto-Healing & Rebalance** | Proactive scanning for under-replicated chunks (Heal Pass) to restore N=3 |
+| **Chaos UI (Fault-Togglable)** | Dynamic UI for simulating node crashes/recoveries without process restarts |
 
 ---
 
@@ -55,11 +56,13 @@ A distributed file storage system built with **Spring Boot** that demonstrates c
 - **gRPC** (Netty + Protobuf) for inter-node communication
 - **REST API** (Spring Web) for client-facing operations
 - **Maven** for build management
+- **Simulation Layer**: Conditional heartbeats for non-destructive fault testing
 
 ### Frontend
 - **React 19** + **TypeScript**
 - **Vite** for fast, optimized builds
-- **TailwindCSS** for UI styling
+- **Lucide Icons** for modern cluster visualization
+- **TailwindCSS** for premium, dynamic styling
 
 ---
 
@@ -84,14 +87,11 @@ Create the following **Run Configurations** (`Run → Edit Configurations → + 
 | **Storage-9002** | `-Dspring.profiles.active=storage` | `--server.port=9002 --storage.dir=storage-9002` |
 | **Storage-9003** | `-Dspring.profiles.active=storage` | `--server.port=9003 --storage.dir=storage-9003` |
 | **Storage-9004** | `-Dspring.profiles.active=storage` | `--server.port=9004 --storage.dir=storage-9004` |
-| **ZAB Metadata Node 1 (Leader)** | `-Dspring.profiles.active=zab-metadata -Dmetadata.base.dir=.` | `--server.port=8081` |
-| **ZAB Metadata Node 2 (Follower)** | `-Dspring.profiles.active=zab-metadata -Dmetadata.base.dir=.` | `--server.port=8082` |
-| **ZAB Metadata Node 3 (Follower)** | `-Dspring.profiles.active=zab-metadata -Dmetadata.base.dir=.` | `--server.port=8083` |
+| **ZAB Node 1 (Leader)** | `-Dspring.profiles.active=zab-metadata -Dmetadata.base.dir=.` | `--server.port=8081` |
+| **ZAB Node 2** | `-Dspring.profiles.active=zab-metadata -Dmetadata.base.dir=.` | `--server.port=8082` |
+| **ZAB Node 3** | `-Dspring.profiles.active=zab-metadata -Dmetadata.base.dir=.` | `--server.port=8083` |
 
-**Start all configurations** in this order:
-1. Gateway-8080
-2. Storage nodes (9001–9004)
-3. ZAB Metadata nodes (8081–8083)
+**Start order**: Gateway -> Storage nodes -> ZAB nodes.
 
 ### Running with Terminal
 
@@ -125,15 +125,12 @@ Open **separate terminals** for each node:
 
 ### Running the Web UI
 
-Once the backend nodes are started, open a new terminal in the `demo-ui` folder:
-
 ```bash
 cd demo-ui
-npm install
-npm run dev
+npm install && npm run dev
 ```
 
-Then visit the URL provided in the terminal (usually `http://localhost:5173`) to use the Google Drive-like interface!
+Visit `http://localhost:5173`.
 
 ### Verify It's Running
 
@@ -168,6 +165,12 @@ GET http://localhost:8080/membership/nodes
 | `GET` | `/membership/nodes/up` | List only UP nodes |
 | `GET` | `/membership/nodes/down` | List only DOWN nodes |
 | `GET` | `/membership/nodes/{nodeId}` | Get a specific node |
+
+### Chaos & Fault Simulation
+| Method | Endpoint | Description |
+|---|---|---|
+| `POST` | `/chaos/toggle` | Toggles node health (pauses/resumes heartbeat) |
+| `POST` | `/chaos/kill` | Hard crash (System.exit) for testing process loss |
 
 ### Storage Node (ports 9001–9004)
 
@@ -212,13 +215,14 @@ Tests cover:
 - `ConcurrentUpdateConflictTest` — 7 tests
 - `VersionedStorageServiceTest` — 8 tests
 
-### Test Fault Tolerance
+### Testing Fault Tolerance (viva Ready)
 
-1. Stop one storage node in IntelliJ
-2. Wait 5 seconds → node marked as DOWN
-3. Check `GET /membership/nodes` → status should be `DOWN`
-4. Watch gateway console → "triggering re-replication"
-5. Restart the node → status goes back to `UP`
+1. **Dashboard Toggling**: Go to the **Pulse Monitor** tab.
+2. **Simulate Failure**: Click "Simulate Failure" on Node 3.
+3. **Observation**: Watch the heart pulse turn red. Within 5-10s, the Gateway logs: `Repair Controller: Node 3 is DOWN, triggering re-replication`.
+4. **Verification**: Check the chunk mapping modal for a file; the chunk that was on Node 3 will now be copied to Node 4.
+5. **Node Recovery**: Click "Bring UP" on Node 3.
+6. **Auto-Healing**: Within 60s, watch the Gateway console for: `🗑️ Reconciliation GC: Found stray chunk on Node 3`. The "zombie" data is purged, and the system is perfectly rebalanced.
 
 ---
 

@@ -113,17 +113,20 @@ export default function App() {
     }
   };
 
-  const handleKillNode = async (url: string) => {
+  const handleToggleNode = async (url: string) => {
     const port = url.split(':').pop();
-    if (!confirm(`⚠️ WARNING: This will immediately kill the Java process on port ${port} to test fault-tolerance. Proceed?`)) return;
+    const isCurrentlyUp = health?.storage.upNodeUrls.includes(url);
+    const action = isCurrentlyUp ? "Kill/Simulate Failure" : "Bring UP";
+    
+    if (!confirm(`Confirm: ${action} for Node on port ${port}?`)) return;
     
     try {
       // Direct call to the node's chaos endpoint
-      await axios.post(`${url}/chaos/kill`);
-      alert(`Chaos sequence initiated for Node on port ${port}. It will shut down in 1 second.`);
+      await axios.post(`${url}/chaos/toggle`);
+      // No alert needed, the UI will poll and update automatically
     } catch (e) {
-      console.error("Failed to kill node", e);
-      alert("Node is already offline or unreachable.");
+      console.error("Failed to toggle node health", e);
+      alert("Error reaching node. If it was a hard crash (System.exit), you must restart it manually in terminal.");
     }
   };
 
@@ -425,14 +428,16 @@ export default function App() {
                             <h4 className={`text-2xl font-black tracking-tighter mb-8 ${isUp ? 'text-white' : 'text-gray-600 italic'}`}>
                               {isUp ? 'OPERATIONAL' : 'OFFLINE'}
                             </h4>
-                            {isUp && (
-                              <button 
-                                onClick={() => handleKillNode(url)}
-                                className="w-full py-4 text-center rounded-2xl bg-white/5 border border-white/10 hover:bg-red-500 hover:text-white transition-all text-[10px] font-black uppercase tracking-widest"
-                              >
-                                Trigger Crash
-                              </button>
-                            )}
+                            <button 
+                              onClick={() => handleToggleNode(url)}
+                              className={`w-full py-4 text-center rounded-2xl border transition-all text-[10px] font-black uppercase tracking-widest ${
+                                isUp 
+                                  ? 'bg-white/5 border-white/10 hover:bg-red-500 hover:text-white' 
+                                  : 'bg-green-500/10 border-green-500/20 text-green-500 hover:bg-green-500 hover:text-white'
+                              }`}
+                            >
+                              {isUp ? 'Simulate Failure' : 'Bring UP'}
+                            </button>
                           </div>
                         );
                       })}
